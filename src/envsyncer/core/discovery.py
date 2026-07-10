@@ -25,17 +25,35 @@ DEFAULT_SECRET_PATTERNS: tuple[str, ...] = (
     "service-account.json",
 )
 
+#: Glob patterns that, when matched, EXCLUDE a file even if it looked like a
+#: secret. These are templates/samples that are safe to keep in version control
+#: and should never be synced (e.g. ``.env.example``, ``config.sample``).
+DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
+    "*.example",
+    "*.sample",
+    "*.template",
+)
 
-def _is_secret_name(name: str) -> bool:
-    return any(fnmatch.fnmatch(name, pattern) for pattern in DEFAULT_SECRET_PATTERNS)
+
+def _matches_any(name: str, patterns: tuple[str, ...]) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
 
 
-def discover_secrets(repo_root: Path) -> list[SecretFile]:
+def discover_secrets(
+    repo_root: Path,
+    *,
+    extra_includes: tuple[str, ...] = (),
+    extra_excludes: tuple[str, ...] = (),
+) -> list[SecretFile]:
     """Walk ``repo_root`` and return every secret file, hashed.
 
-    Relative paths are POSIX-style (forward slashes) so the vault layout is
-    identical no matter which OS created it.
+    A file is included when its name matches an include pattern (defaults plus
+    any ``extra_includes``) AND does not match an exclude pattern (defaults plus
+    any ``extra_excludes``). Relative paths are POSIX-style (forward slashes) so
+    the vault layout is identical no matter which OS created it.
     """
+    includes = (*DEFAULT_SECRET_PATTERNS, *extra_includes)
+    excludes = (*DEFAULT_EXCLUDE_PATTERNS, *extra_excludes)
     matcher = IgnoreMatcher.load(repo_root)
     found: list[SecretFile] = []
 
@@ -51,7 +69,9 @@ def discover_secrets(repo_root: Path) -> list[SecretFile]:
         dirnames[:] = kept
 
         for filename in filenames:
-            if not _is_secret_name(filename):
+            if not _matches_any(filename, includes):
+                continue
+            if _matches_any(filename, excludes):
                 continue
             abs_path = current / filename
             rel = (abs_path).relative_to(repo_root).as_posix()

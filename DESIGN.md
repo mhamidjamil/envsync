@@ -34,11 +34,14 @@ interactivity so non-interactive mode is one switch, not scattered `if`s.
 - The vault repo always belongs to the authenticated user; `<owner>/<repo>` is only
   a logical folder key (the project may be someone else's repo you cloned).
 
-## Vault backend: GitHub Contents API
+## Vault backend: GitHub API
 
-Reads/writes files via `GET`/`PUT /repos/{owner}/{repo}/contents/{path}`. A `PUT`
-**is** a commit + push, so syncing is auto-committed with no local clone/git state
-to manage. The `~/.envsyncer/cache/` dir holds baseline hashes only.
+Reads use the Contents API (`GET .../contents/{path}`). Writes are **batched into
+a single commit** via the Git Data API: the vault stages all changed files, then
+`commit()` uploads them as blobs, builds one tree on the branch tip, creates one
+commit, and fast-forwards the ref. So a sync of N files produces exactly one
+vault commit, with no local clone/git state to manage. The `~/.envsyncer/cache/`
+dir holds baseline hashes only.
 
 ## Sync decision logic
 
@@ -64,6 +67,9 @@ Conflicts offer: show diff / replace local / replace remote / save-local-as-new-
 
 ## Extensibility
 
-- New secret type → add one glob to `DEFAULT_SECRET_PATTERNS`.
+- New secret type → add one glob to `DEFAULT_SECRET_PATTERNS` (built-in), or at
+  runtime with `envsyncer add <pattern>` (persisted in config, all projects).
+- Exclude a pattern → `DEFAULT_EXCLUDE_PATTERNS`, `envsyncer exclude <pattern>`,
+  or a per-repo `.envsyncignore`.
 - New command → add a `commands/*` module + one wiring line in `cli.py`.
 - Alternative vault backend → implement behind the `github_client`/`vault` seam.

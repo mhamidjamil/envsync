@@ -29,7 +29,12 @@ _ACTION_STYLE = {
 # -- indices --------------------------------------------------------------
 def local_index(session: Session) -> dict[str, SecretFile]:
     assert session.root is not None
-    return {sf.relative_path: sf for sf in discover_secrets(session.root)}
+    secrets = discover_secrets(
+        session.root,
+        extra_includes=session.config.include_patterns(),
+        extra_excludes=session.config.exclude_patterns(),
+    )
+    return {sf.relative_path: sf for sf in secrets}
 
 
 def remote_index(session: Session, profile: str) -> dict[str, RemoteFile]:
@@ -69,7 +74,7 @@ def run_sync(session: Session, profile: str) -> None:
 
     final_remote = dict(remote)
     new_baseline = dict(baseline)
-    changed = False
+    uploaded_count = 0
 
     for fp in plan.files:
         if fp.action is SyncAction.IN_SYNC:
@@ -80,13 +85,12 @@ def run_sync(session: Session, profile: str) -> None:
             if _do_upload(session, profile, fp):
                 final_remote[fp.relative_path] = _as_remote(fp.local)  # type: ignore[arg-type]
                 new_baseline[fp.relative_path] = fp.local.sha256  # type: ignore[union-attr]
-                changed = True
+                uploaded_count += 1
 
         elif fp.action is SyncAction.DOWNLOAD:
             if _do_download(session, profile, fp):
                 final_remote[fp.relative_path] = fp.remote  # type: ignore[assignment]
                 new_baseline[fp.relative_path] = fp.remote.sha256  # type: ignore[union-attr]
-                changed = True
 
         elif fp.action is SyncAction.CONFLICT:
             outcome = _resolve_conflict(session, profile, fp, local, new_baseline)
@@ -94,14 +98,19 @@ def run_sync(session: Session, profile: str) -> None:
                 return
             if outcome == "uploaded":
                 final_remote[fp.relative_path] = _as_remote(fp.local)  # type: ignore[arg-type]
-                changed = True
+                uploaded_count += 1
             elif outcome == "downloaded":
                 final_remote[fp.relative_path] = fp.remote  # type: ignore[assignment]
-                changed = True
 
-    if changed:
-        session.vault.write_profile_metadata(session.project_key, profile, final_remote)
-        session.vault.refresh_manifest(session.project_key)
+    # Only uploads change the vault, so only they warrant a commit. A
+    # download-only sync updates local files (and the local baseline) but must
+    # not create a spurious vault commit.
+    if uploaded_count > 0:
+        session.vault.stage_profile_metadata(session.project_key, profile, final_remote)
+        session.vault.stage_manifest(session.project_key, profile)
+        session.vault.commit(
+            f"envsyncer: sync {session.project_key}/{profile} ({uploaded_count} file(s))"
+        )
     cache.save_baseline(session.project_key, profile, new_baseline)
     success("Sync complete.")
 
@@ -111,7 +120,7 @@ def _do_upload(session: Session, profile: str, fp: FilePlan) -> bool:
     if not prompts.confirm(f"Upload {fp.relative_path}?", assume_yes=session.assume_yes):
         return False
     content = fp.local.absolute_path.read_bytes()
-    session.vault.upload(session.project_key, profile, fp.relative_path, content)
+    session.vault.stage_file(session.project_key, profile, fp.relative_path, content)
     uploaded(fp.relative_path)
     _log.info("upload project=%s profile=%s path=%s", session.project_key, profile, fp.relative_path)
     return True
@@ -148,7 +157,7 @@ def _resolve_conflict(
 
     if decision is ConflictDecision.UPLOAD:
         content = fp.local.absolute_path.read_bytes()  # type: ignore[union-attr]
-        session.vault.upload(session.project_key, profile, fp.relative_path, content)
+        session.vault.stage_file(session.project_key, profile, fp.relative_path, content)
         uploaded(fp.relative_path)
         new_baseline[fp.relative_path] = fp.local.sha256  # type: ignore[union-attr]
         return "uploaded"
@@ -172,11 +181,12 @@ def _save_local_as_new_profile(session: Session, local: dict[str, SecretFile]) -
     info(f"Saving your local secrets to new profile [bold]{name}[/] …")
     new_remote: dict[str, RemoteFile] = {}
     for rel, sf in local.items():
-        session.vault.upload(session.project_key, name, rel, sf.absolute_path.read_bytes())
+        session.vault.stage_file(session.project_key, name, rel, sf.absolute_path.read_bytes())
         uploaded(f"{name}/{rel}")
         new_remote[rel] = _as_remote(sf)
-    session.vault.write_profile_metadata(session.project_key, name, new_remote)
-    session.vault.refresh_manifest(session.project_key)
+    session.vault.stage_profile_metadata(session.project_key, name, new_remote)
+    session.vault.stage_manifest(session.project_key, name)
+    session.vault.commit(f"envsyncer: save local as profile {session.project_key}/{name}")
     session.config.set_profile(session.project_key, name)
     session.config.save()
     cache.save_baseline(session.project_key, name, {rel: sf.sha256 for rel, sf in local.items()})
@@ -197,11 +207,12 @@ def run_push(session: Session, profile: str) -> None:
         return
     final_remote: dict[str, RemoteFile] = {}
     for rel, sf in local.items():
-        session.vault.upload(session.project_key, profile, rel, sf.absolute_path.read_bytes())
+        session.vault.stage_file(session.project_key, profile, rel, sf.absolute_path.read_bytes())
         uploaded(rel)
         final_remote[rel] = _as_remote(sf)
-    session.vault.write_profile_metadata(session.project_key, profile, final_remote)
-    session.vault.refresh_manifest(session.project_key)
+    session.vault.stage_profile_metadata(session.project_key, profile, final_remote)
+    session.vault.stage_manifest(session.project_key, profile)
+    session.vault.commit(f"envsyncer: push {session.project_key}/{profile} ({len(local)} files)")
     cache.save_baseline(session.project_key, profile, {rel: sf.sha256 for rel, sf in local.items()})
     success(f"Pushed {len(local)} file(s) to '{profile}'.")
 

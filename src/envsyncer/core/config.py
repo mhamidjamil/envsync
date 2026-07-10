@@ -38,7 +38,10 @@ def _blank_config() -> dict[str, Any]:
         "github": {"token": "", "user": ""},
         "vault_repo": DEFAULT_VAULT_REPO,
         "projects": {},   # "owner/repo" -> {"profile": "..."}
-        "settings": {},
+        "settings": {
+            "include": [],   # extra secret-file glob patterns to scan for
+            "exclude": [],   # extra glob patterns to skip
+        },
     }
 
 
@@ -107,6 +110,31 @@ class Config:
 
     def is_setup_complete(self) -> bool:
         return self.has_token() and bool(self.github_user) and bool(self.vault_repo)
+
+    # -- custom scan patterns (applied to all projects) ------------------
+    def _pattern_list(self, key: str) -> list[str]:
+        return self._data.setdefault("settings", {}).setdefault(key, [])
+
+    def include_patterns(self) -> tuple[str, ...]:
+        return tuple(self._pattern_list("include"))
+
+    def exclude_patterns(self) -> tuple[str, ...]:
+        return tuple(self._pattern_list("exclude"))
+
+    def add_include(self, pattern: str) -> bool:
+        """Register an extra secret pattern. Returns False if already present."""
+        return self._add_pattern("include", pattern)
+
+    def add_exclude(self, pattern: str) -> bool:
+        """Register an extra exclude pattern. Returns False if already present."""
+        return self._add_pattern("exclude", pattern)
+
+    def _add_pattern(self, key: str, pattern: str) -> bool:
+        patterns = self._pattern_list(key)
+        if pattern in patterns:
+            return False
+        patterns.append(pattern)
+        return True
 
     # -- per-project profile ---------------------------------------------
     def get_profile(self, repo_key: str) -> str | None:

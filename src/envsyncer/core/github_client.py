@@ -116,29 +116,84 @@ class GitHubClient:
         payload = response.json()
         return payload if isinstance(payload, list) else []
 
-    def put_file(
+    def commit_files(
         self,
         owner: str,
         repo: str,
-        path: str,
-        content: bytes,
+        branch: str,
+        files: dict[str, bytes],
         message: str,
-        branch: str | None = None,
     ) -> None:
-        """Create or update a file (an auto-commit). Fetches the blob sha if updating."""
-        existing = self.get_file(owner, repo, path, ref=branch)
-        body: dict[str, Any] = {
-            "message": message,
-            "content": base64.b64encode(content).decode("ascii"),
-        }
-        if branch:
-            body["branch"] = branch
-        if existing is not None:
-            body["sha"] = existing[1]
+        """Write many files as a SINGLE commit via the Git Data API.
 
-        response = self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=body)
+        Steps: resolve the branch tip -> its base tree -> upload each file as a
+        blob -> build one new tree on top of the base -> create one commit ->
+        fast-forward the branch ref. The result is exactly one commit no matter
+        how many files changed.
+        """
+        if not files:
+            return
+
+        base_commit_sha = self._get_ref_sha(owner, repo, branch)
+        base_tree_sha = self._get_commit_tree(owner, repo, base_commit_sha)
+
+        tree = [
+            {
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": self._create_blob(owner, repo, content),
+            }
+            for path, content in files.items()
+        ]
+
+        new_tree_sha = self._post_json(
+            f"/repos/{owner}/{repo}/git/trees",
+            {"base_tree": base_tree_sha, "tree": tree},
+            "create tree",
+        )["sha"]
+        new_commit_sha = self._post_json(
+            f"/repos/{owner}/{repo}/git/commits",
+            {"message": message, "tree": new_tree_sha, "parents": [base_commit_sha]},
+            "create commit",
+        )["sha"]
+
+        response = self._request(
+            "PATCH",
+            f"/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            json={"sha": new_commit_sha, "force": False},
+        )
         if not response.ok:
             raise GitHubError(
-                f"Failed to write '{path}': {self._json_error(response)}",
+                f"Failed to update branch '{branch}': {self._json_error(response)}",
                 response.status_code,
             )
+
+    # -- git data helpers -------------------------------------------------
+    def _get_ref_sha(self, owner: str, repo: str, branch: str) -> str:
+        response = self._request("GET", f"/repos/{owner}/{repo}/git/ref/heads/{branch}")
+        if not response.ok:
+            raise GitHubError(
+                f"Could not resolve branch '{branch}': {self._json_error(response)}",
+                response.status_code,
+            )
+        return response.json()["object"]["sha"]
+
+    def _get_commit_tree(self, owner: str, repo: str, commit_sha: str) -> str:
+        response = self._request("GET", f"/repos/{owner}/{repo}/git/commits/{commit_sha}")
+        if not response.ok:
+            raise GitHubError(self._json_error(response), response.status_code)
+        return response.json()["tree"]["sha"]
+
+    def _create_blob(self, owner: str, repo: str, content: bytes) -> str:
+        return self._post_json(
+            f"/repos/{owner}/{repo}/git/blobs",
+            {"content": base64.b64encode(content).decode("ascii"), "encoding": "base64"},
+            "create blob",
+        )["sha"]
+
+    def _post_json(self, path: str, body: dict[str, Any], what: str) -> dict[str, Any]:
+        response = self._request("POST", path, json=body)
+        if not response.ok:
+            raise GitHubError(f"Failed to {what}: {self._json_error(response)}", response.status_code)
+        return response.json()

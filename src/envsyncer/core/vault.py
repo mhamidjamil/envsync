@@ -28,6 +28,8 @@ class VaultManager:
         self._owner = config.github_user
         self._repo = config.vault_repo
         self._branch: str | None = None
+        # Pending writes (vault_path -> content) flushed together by commit().
+        self._staged: dict[str, bytes] = {}
 
     # -- path mapping -----------------------------------------------------
     def profile_root(self, project_key: str, profile: str) -> str:
@@ -68,7 +70,7 @@ class VaultManager:
             raise VaultError(f"Corrupt metadata for profile '{profile}': {exc}") from exc
         return metadata.parse_profile_metadata(data)
 
-    # -- file transfer ----------------------------------------------------
+    # -- reads ------------------------------------------------------------
     def download(self, project_key: str, profile: str, relative_path: str) -> bytes:
         path = self.vault_path(project_key, profile, relative_path)
         result = self._client.get_file(self._owner, self._repo, path, ref=self.branch)
@@ -76,22 +78,21 @@ class VaultManager:
             raise VaultError(f"Expected file missing from vault: {path}")
         return result[0]
 
-    def upload(self, project_key: str, profile: str, relative_path: str, content: bytes) -> None:
-        path = self.vault_path(project_key, profile, relative_path)
-        message = f"envsyncer: update {path}"
-        self._client.put_file(self._owner, self._repo, path, content, message, branch=self.branch)
+    # -- staging (all writes go here, then a single commit) ---------------
+    def stage_file(self, project_key: str, profile: str, relative_path: str, content: bytes) -> None:
+        self._staged[self.vault_path(project_key, profile, relative_path)] = content
 
-    # -- metadata + manifest ----------------------------------------------
-    def write_profile_metadata(self, project_key: str, profile: str, files: dict[str, RemoteFile]) -> None:
+    def stage_profile_metadata(self, project_key: str, profile: str, files: dict[str, RemoteFile]) -> None:
         data = metadata.build_profile_metadata(project_key, profile, files)
         path = self.vault_path(project_key, profile, metadata.PROFILE_META_FILENAME)
-        self._client.put_file(
-            self._owner, self._repo, path, metadata.dumps(data),
-            f"envsyncer: metadata for {project_key}/{profile}", branch=self.branch,
-        )
+        self._staged[path] = metadata.dumps(data)
 
-    def refresh_manifest(self, project_key: str) -> None:
-        """Re-index this project's profiles into the root ``manifest.json``."""
+    def stage_manifest(self, project_key: str, profile: str) -> None:
+        """Stage a refreshed root ``manifest.json`` for this project.
+
+        Profiles = those already committed plus the one being written now (which
+        isn't committed yet, so it wouldn't show up in a directory listing).
+        """
         existing = self._client.get_file(
             self._owner, self._repo, metadata.MANIFEST_FILENAME, ref=self.branch
         )
@@ -101,8 +102,16 @@ class VaultManager:
                 current = json.loads(existing[0].decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 current = None
-        updated = metadata.update_manifest(current, project_key, self.list_profiles(project_key))
-        self._client.put_file(
-            self._owner, self._repo, metadata.MANIFEST_FILENAME, metadata.dumps(updated),
-            "envsyncer: update manifest", branch=self.branch,
-        )
+        profiles = sorted(set(self.list_profiles(project_key)) | {profile})
+        updated = metadata.update_manifest(current, project_key, profiles)
+        self._staged[metadata.MANIFEST_FILENAME] = metadata.dumps(updated)
+
+    def has_staged(self) -> bool:
+        return bool(self._staged)
+
+    def commit(self, message: str) -> None:
+        """Flush all staged writes as one commit; no-op if nothing is staged."""
+        if not self._staged:
+            return
+        self._client.commit_files(self._owner, self._repo, self.branch, self._staged, message)
+        self._staged.clear()

@@ -47,3 +47,27 @@ def test_env_variants_match(tmp_path):
     _write(tmp_path / ".env.production")
     rels = {sf.relative_path for sf in discover_secrets(tmp_path)}
     assert rels == {".env.local", ".env.production"}
+
+
+def test_default_excludes_examples_and_samples(tmp_path):
+    _write(tmp_path / ".env")
+    _write(tmp_path / ".env.example")
+    _write(tmp_path / ".env.sample")
+    _write(tmp_path / "config.template")
+    rels = {sf.relative_path for sf in discover_secrets(tmp_path)}
+    assert rels == {".env"}
+
+
+def test_extra_includes_and_excludes(tmp_path):
+    _write(tmp_path / "local.properties")   # extra include
+    _write(tmp_path / ".env")
+    _write(tmp_path / ".env.local")         # excluded by extra exclude "*.local"
+    rels = {
+        sf.relative_path
+        for sf in discover_secrets(
+            tmp_path,
+            extra_includes=("local.properties",),
+            extra_excludes=("*.local",),
+        )
+    }
+    assert rels == {".env", "local.properties"}

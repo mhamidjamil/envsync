@@ -35,10 +35,11 @@ python3 -m venv .venv && . .venv/bin/activate && pip install envsyncer
 ## What it does
 
 - Detects the current git repo (SSH or HTTPS remotes) and identifies it as `owner/repository`.
-- Recursively finds secret files (`.env`, `.env.*`, `arduino_secrets.h`, `firebase.json`, `service-account.json`, …) while skipping `node_modules/`, `.git/`, etc. Respects a `.envsyncignore` file.
+- Recursively finds secret files (`.env`, `.env.*`, `arduino_secrets.h`, `secrets.h`, `firebase.json`, `service-account.json`, …) while skipping `node_modules/`, `.git/`, etc. Sample/template files (`*.example`, `*.sample`, `*.template`) are ignored by default. Respects a `.envsyncignore` file.
 - Stores them in a **private** GitHub repo (default `my-env`) under
   `owner/repository/<profile>/<original relative path>` — **folder structure is preserved**,
   so a file at `secret/.env` comes back down at `secret/.env` on any machine.
+- Each sync is **a single commit** in the vault, no matter how many files changed.
 - Compares by **SHA-256** (never timestamps) and, using a per-project baseline,
   correctly tells apart "only local changed", "only remote changed", and a real conflict.
 - Supports multiple **profiles** per project (`main`, `dev`, `staging`, …).
@@ -53,10 +54,19 @@ python3 -m venv .venv && . .venv/bin/activate && pip install envsyncer
 | `envsyncer pull` | Download the active profile's secrets to local |
 | `envsyncer profile` | Show the active/available profiles |
 | `envsyncer profile <name>` | Switch (or create) the active profile |
+| `envsyncer add <pattern>` | Register an extra secret pattern to scan (e.g. `local.properties`) |
+| `envsyncer exclude <pattern>` | Register an extra glob to skip (e.g. `*.local`) |
 | `envsyncer setup` | Re-run first-time setup (auth + vault) |
 | `envsyncer doctor` | Diagnose configuration and connectivity |
 
 Add `--yes` / `-y` for non-interactive runs (conflicts are skipped, never auto-overwritten).
+
+### Customizing what gets synced
+
+- `envsyncer add local.properties` — include a new file type from now on (all projects).
+- `envsyncer exclude '*.local'` — skip a pattern from now on (all projects).
+- `envsyncer add` / `envsyncer exclude` with no argument lists the current patterns.
+- Per-repo path exclusions: add a `.envsyncignore` file (gitignore syntax) to the repo.
 
 ## First run
 
