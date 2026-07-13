@@ -20,6 +20,7 @@ DEFAULT_SECRET_PATTERNS: tuple[str, ...] = (
     ".env",
     ".env.*",
     "arduino_secrets.h",
+    "secrets.h",
     "firebase.json",
     "service-account.json",
 )

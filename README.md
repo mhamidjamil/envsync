@@ -6,9 +6,30 @@ Clone any repo, run one command, and your `.env` (and other secrets) are pulled
 down — or pushed up — exactly where they belong. No per-project config, ever.
 
 ```bash
-pip install envsyncer
+pipx install envsyncer   # recommended — global command, no venv to manage
 cd my-project
 envsyncer
+```
+
+## Installing
+
+**Recommended — [`pipx`](https://pipx.pypa.io):** installs EnvSyncer in its own
+isolated environment while exposing `envsyncer` globally on your PATH. No virtual
+environment to create or activate, and it can't clash with your system Python
+(which is what triggers pip's *"externally-managed-environment"* error).
+
+```bash
+brew install pipx          # or: python3 -m pip install --user pipx
+pipx ensurepath            # then restart your terminal once
+pipx install envsyncer
+```
+
+Alternatives if you prefer plain pip:
+
+```bash
+pip install --user envsyncer      # per-user install
+# or inside a virtualenv:
+python3 -m venv .venv && . .venv/bin/activate && pip install envsyncer
 ```
 
 ## What it does

@@ -11,6 +11,7 @@ def test_discovers_nested_secrets_and_preserves_relative_paths(tmp_path):
     _write(tmp_path / "secret" / ".env")            # nested — the key requirement
     _write(tmp_path / "config" / "firebase.json")
     _write(tmp_path / "arduino" / "arduino_secrets.h")
+    _write(tmp_path / "lib" / "secrets.h")          # nested, non-arduino header
     _write(tmp_path / "README.md")                  # not a secret
 
     rels = {sf.relative_path for sf in discover_secrets(tmp_path)}
@@ -19,6 +20,7 @@ def test_discovers_nested_secrets_and_preserves_relative_paths(tmp_path):
         "secret/.env",
         "config/firebase.json",
         "arduino/arduino_secrets.h",
+        "lib/secrets.h",
     }
 
 
