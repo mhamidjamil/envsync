@@ -129,11 +129,26 @@ class Config:
         """Register an extra exclude pattern. Returns False if already present."""
         return self._add_pattern("exclude", pattern)
 
+    def remove_include(self, pattern: str) -> bool:
+        """Drop a custom secret pattern. Returns False if it wasn't there."""
+        return self._remove_pattern("include", pattern)
+
+    def remove_exclude(self, pattern: str) -> bool:
+        """Drop a custom exclude pattern. Returns False if it wasn't there."""
+        return self._remove_pattern("exclude", pattern)
+
     def _add_pattern(self, key: str, pattern: str) -> bool:
         patterns = self._pattern_list(key)
         if pattern in patterns:
             return False
         patterns.append(pattern)
+        return True
+
+    def _remove_pattern(self, key: str, pattern: str) -> bool:
+        patterns = self._pattern_list(key)
+        if pattern not in patterns:
+            return False
+        patterns.remove(pattern)
         return True
 
     # -- per-project profile ---------------------------------------------

@@ -13,7 +13,11 @@ import pathspec
 #: Directories never worth scanning for secrets. Pruned during the walk so we
 #: don't descend into huge trees like ``node_modules``.
 DEFAULT_IGNORED_DIRS: frozenset[str] = frozenset(
-    {".git", "node_modules", "vendor", "build", "dist", ".next"}
+    {
+        ".git", "node_modules", "vendor", "build", "dist", ".next",
+        ".gradle", ".dart_tool", "Pods", "target", ".terraform",
+        ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".tox",
+    }
 )
 
 IGNORE_FILENAME = ".envsyncignore"

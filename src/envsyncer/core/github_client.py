@@ -12,7 +12,7 @@ git state to manage.
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Iterable
 
 import requests
 
@@ -102,8 +102,33 @@ class GitHubClient:
         if not response.ok:
             raise GitHubError(self._json_error(response), response.status_code)
         payload = response.json()
-        content = base64.b64decode(payload["content"])
-        return content, payload["sha"]
+        return self._decode_content(owner, repo, path, payload), payload["sha"]
+
+    def _decode_content(self, owner: str, repo: str, path: str, payload: dict[str, Any]) -> bytes:
+        """Get the bytes of a Contents API payload, whatever its size.
+
+        The Contents API only inlines files up to 1 MB; anything larger comes
+        back with empty content and ``encoding: none``. Decoding that blindly
+        would hand back an empty file and silently destroy a large secret on
+        download, so oversized files are fetched from the Git Data blob API
+        (good to 100 MB) instead.
+        """
+        if payload.get("encoding") == "base64":
+            return base64.b64decode(payload["content"])
+
+        response = self._request("GET", f"/repos/{owner}/{repo}/git/blobs/{payload['sha']}")
+        if not response.ok:
+            raise GitHubError(
+                f"Could not read '{path}' from the vault: {self._json_error(response)}",
+                response.status_code,
+            )
+        blob = response.json()
+        if blob.get("encoding") != "base64":
+            raise GitHubError(
+                f"Could not read '{path}' from the vault: unsupported encoding "
+                f"{blob.get('encoding')!r} (file may exceed 100 MB)."
+            )
+        return base64.b64decode(blob["content"])
 
     def list_dir(self, owner: str, repo: str, path: str, ref: str | None = None) -> list[dict[str, Any]]:
         """Return directory entries, or an empty list if the path is absent."""
@@ -123,21 +148,24 @@ class GitHubClient:
         branch: str,
         files: dict[str, bytes],
         message: str,
+        deletions: Iterable[str] = (),
     ) -> None:
-        """Write many files as a SINGLE commit via the Git Data API.
+        """Write (and delete) many files as a SINGLE commit via the Git Data API.
 
         Steps: resolve the branch tip -> its base tree -> upload each file as a
         blob -> build one new tree on top of the base -> create one commit ->
         fast-forward the branch ref. The result is exactly one commit no matter
-        how many files changed.
+        how many files changed. A tree entry with a null sha removes the path,
+        which is how deletions ride along in the same commit.
         """
-        if not files:
+        removals = list(deletions)
+        if not files and not removals:
             return
 
         base_commit_sha = self._get_ref_sha(owner, repo, branch)
         base_tree_sha = self._get_commit_tree(owner, repo, base_commit_sha)
 
-        tree = [
+        tree: list[dict[str, Any]] = [
             {
                 "path": path,
                 "mode": "100644",
@@ -146,6 +174,10 @@ class GitHubClient:
             }
             for path, content in files.items()
         ]
+        tree.extend(
+            {"path": path, "mode": "100644", "type": "blob", "sha": None}
+            for path in removals
+        )
 
         new_tree_sha = self._post_json(
             f"/repos/{owner}/{repo}/git/trees",
@@ -164,8 +196,11 @@ class GitHubClient:
             json={"sha": new_commit_sha, "force": False},
         )
         if not response.ok:
+            hint = ""
+            if response.status_code == 422:
+                hint = " The vault moved while this sync was running — re-run the command."
             raise GitHubError(
-                f"Failed to update branch '{branch}': {self._json_error(response)}",
+                f"Failed to update branch '{branch}': {self._json_error(response)}.{hint}",
                 response.status_code,
             )
 

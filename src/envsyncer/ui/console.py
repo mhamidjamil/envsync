@@ -19,6 +19,7 @@ _WARN = "[bold yellow]![/]"
 _INFO = "[bold cyan]•[/]"
 _UP = "[bold green]↑[/]"
 _DOWN = "[bold blue]↓[/]"
+_DEL = "[bold red]✂[/]"
 
 
 def success(message: str) -> None:
@@ -43,6 +44,10 @@ def uploaded(message: str) -> None:
 
 def downloaded(message: str) -> None:
     console.print(f"{_DOWN} {message}")
+
+
+def removed(message: str) -> None:
+    console.print(f"{_DEL} [red]{message}[/]")
 
 
 def plain(message: str = "") -> None:

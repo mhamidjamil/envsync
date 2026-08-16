@@ -30,6 +30,8 @@ class VaultManager:
         self._branch: str | None = None
         # Pending writes (vault_path -> content) flushed together by commit().
         self._staged: dict[str, bytes] = {}
+        # Pending removals (vault_path), flushed by the same commit.
+        self._deleted: set[str] = set()
 
     # -- path mapping -----------------------------------------------------
     def profile_root(self, project_key: str, profile: str) -> str:
@@ -80,7 +82,15 @@ class VaultManager:
 
     # -- staging (all writes go here, then a single commit) ---------------
     def stage_file(self, project_key: str, profile: str, relative_path: str, content: bytes) -> None:
-        self._staged[self.vault_path(project_key, profile, relative_path)] = content
+        path = self.vault_path(project_key, profile, relative_path)
+        self._deleted.discard(path)
+        self._staged[path] = content
+
+    def stage_delete(self, project_key: str, profile: str, relative_path: str) -> None:
+        """Queue a file for removal from the vault (the local copy is untouched)."""
+        path = self.vault_path(project_key, profile, relative_path)
+        self._staged.pop(path, None)
+        self._deleted.add(path)
 
     def stage_profile_metadata(self, project_key: str, profile: str, files: dict[str, RemoteFile]) -> None:
         data = metadata.build_profile_metadata(project_key, profile, files)
@@ -107,11 +117,15 @@ class VaultManager:
         self._staged[metadata.MANIFEST_FILENAME] = metadata.dumps(updated)
 
     def has_staged(self) -> bool:
-        return bool(self._staged)
+        return bool(self._staged or self._deleted)
 
     def commit(self, message: str) -> None:
-        """Flush all staged writes as one commit; no-op if nothing is staged."""
-        if not self._staged:
+        """Flush all staged writes and removals as one commit; no-op if empty."""
+        if not self.has_staged():
             return
-        self._client.commit_files(self._owner, self._repo, self.branch, self._staged, message)
+        self._client.commit_files(
+            self._owner, self._repo, self.branch, self._staged, message,
+            deletions=sorted(self._deleted),
+        )
         self._staged.clear()
+        self._deleted.clear()

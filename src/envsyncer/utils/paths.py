@@ -25,3 +25,16 @@ def ensure_dirs() -> None:
     """Create the config/logs/cache directories if they do not yet exist."""
     for directory in (CONFIG_DIR, LOGS_DIR, CACHE_DIR):
         directory.mkdir(parents=True, exist_ok=True)
+
+
+def safe_join(root: Path, relative_path: str) -> Path:
+    """Resolve ``relative_path`` under ``root``, refusing to escape it.
+
+    Vault paths are data, so a corrupt or hand-edited metadata entry such as
+    ``../../.ssh/id_rsa`` must not be able to steer a download outside the
+    project it belongs to.
+    """
+    destination = (root / relative_path).resolve()
+    if not destination.is_relative_to(root.resolve()):
+        raise ValueError(f"Path '{relative_path}' points outside the project.")
+    return destination
