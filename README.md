@@ -35,7 +35,8 @@ python3 -m venv .venv && . .venv/bin/activate && pip install envsyncer
 ## What it does
 
 - Detects the current git repo (SSH or HTTPS remotes) and identifies it as `owner/repository`.
-- Recursively finds secret files (`.env`, `.env.*`, `arduino_secrets.h`, `secrets.h`, `firebase.json`, `service-account.json`, …) while skipping `node_modules/`, `.git/`, etc. Sample/template files (`*.example`, `*.sample`, `*.template`) are ignored by default. Respects a `.envsyncignore` file.
+- Recursively finds secret files (`.env`, `.env.*`, `arduino_secrets.h`, `secrets.h`, `firebase.json`, `service-account.json`, …) while skipping `node_modules/`, `.git/`, nested repositories and worktrees, etc. Sample/template files (`*.example`, `*.sample`, `*.template`) are ignored by default. Respects a `.envsyncignore` file.
+- **Anything already stored in the vault keeps syncing** even if no pattern matches it, so a file cannot silently turn into "remote only" and be overwritten by a stale copy when the pattern list changes or differs between machines.
 - Stores them in a **private** GitHub repo (default `my-env`) under
   `owner/repository/<profile>/<original relative path>` — **folder structure is preserved**,
   so a file at `secret/.env` comes back down at `secret/.env` on any machine.
@@ -54,6 +55,7 @@ python3 -m venv .venv && . .venv/bin/activate && pip install envsyncer
 | `envsyncer pull` | Download the active profile's secrets to local |
 | `envsyncer profile` | Show the active/available profiles |
 | `envsyncer profile <name>` | Switch (or create) the active profile |
+| `envsyncer delete [path…]` | Remove file(s) from the vault — local copies stay |
 | `envsyncer add <pattern>` | Register an extra secret pattern to scan (e.g. `local.properties`) |
 | `envsyncer exclude <pattern>` | Register an extra glob to skip (e.g. `*.local`) |
 | `envsyncer setup` | Re-run first-time setup (auth + vault) |
@@ -65,8 +67,21 @@ Add `--yes` / `-y` for non-interactive runs (conflicts are skipped, never auto-o
 
 - `envsyncer add local.properties` — include a new file type from now on (all projects).
 - `envsyncer exclude '*.local'` — skip a pattern from now on (all projects).
+- Patterns match a bare file name anywhere in the project (`*.pem`), a path relative to the
+  project root when they contain a slash (`android/local.properties`), or a full absolute
+  path, which is reduced to a path inside the project it names.
+- `envsyncer add --remove <pattern>` / `envsyncer exclude --remove <pattern>` — undo either one.
+  Adding a pattern to one list drops it from the other, so the two can never cancel out.
 - `envsyncer add` / `envsyncer exclude` with no argument lists the current patterns.
 - Per-repo path exclusions: add a `.envsyncignore` file (gitignore syntax) to the repo.
+
+### Removing something from the vault
+
+Excluding a file stops it being uploaded, but whatever is already in the vault stays there
+and will keep showing up as "in the vault but not in this project". `envsyncer delete
+<path>` removes it for good (with a confirmation); the same choice is offered inline during
+a sync whenever a file exists in the vault but not on this machine. Your local copy is
+never touched.
 
 ## First run
 
