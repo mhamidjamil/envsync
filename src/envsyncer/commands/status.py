@@ -17,15 +17,17 @@ def run(assume_yes: bool = False) -> None:
         session.config, session.vault, session.project_key, assume_yes=assume_yes
     )
 
-    local = _common.local_index(session)
     remote = _common.remote_index(session, profile)
+    scan = _common.scan_local(session, remote)
     baseline = cache.load_baseline(session.project_key, profile)
-    plan = build_plan(profile, local, remote, baseline)
+    plan = build_plan(profile, scan.files, remote, baseline, excluded=scan.excluded)
 
     if not plan.files:
         info("No secret files found locally or in the vault for this profile.")
         return
 
     _common.render_plan(plan)
-    if not plan.has_changes:
+    if plan.has_changes:
+        _common.render_hints(plan)
+    else:
         success("Everything is in sync.")

@@ -10,23 +10,33 @@ from __future__ import annotations
 from envsyncer.models import FilePlan, RemoteFile, SecretFile, SyncAction, SyncPlan
 
 
+#: Reason text for a vault file the user has deliberately excluded locally. It
+#: is not "missing", so it must never be downloaded back without being asked.
+EXCLUDED_REASON = "excluded locally"
+
+
 def build_plan(
     profile: str,
     local: dict[str, SecretFile],
     remote: dict[str, RemoteFile],
     baseline: dict[str, str],
+    *,
+    excluded: frozenset[str] = frozenset(),
 ) -> SyncPlan:
     """Compare each relative path across local/remote/baseline.
 
     ``local``/``remote`` are keyed by relative path; ``baseline`` maps relative
-    path -> sha256 recorded at the previous successful sync.
+    path -> sha256 recorded at the previous successful sync. ``excluded`` names
+    the paths that exist on disk but the user has told us to leave alone.
     """
     plan = SyncPlan(profile=profile)
 
     for rel in sorted(set(local) | set(remote)):
         local_file = local.get(rel)
         remote_file = remote.get(rel)
-        plan.files.append(_decide(rel, local_file, remote_file, baseline.get(rel)))
+        plan.files.append(
+            _decide(rel, local_file, remote_file, baseline.get(rel), rel in excluded)
+        )
 
     return plan
 
@@ -36,12 +46,14 @@ def _decide(
     local: SecretFile | None,
     remote: RemoteFile | None,
     baseline: str | None,
+    is_excluded: bool = False,
 ) -> FilePlan:
     # Present on only one side -> unambiguous direction.
     if local and not remote:
         return FilePlan(rel, SyncAction.UPLOAD, local=local, reason="local only")
     if remote and not local:
-        return FilePlan(rel, SyncAction.DOWNLOAD, remote=remote, reason="remote only")
+        reason = EXCLUDED_REASON if is_excluded else "remote only"
+        return FilePlan(rel, SyncAction.DOWNLOAD, remote=remote, reason=reason)
 
     assert local and remote  # both present from here on
 
