@@ -13,6 +13,7 @@ import typer
 
 from envsyncer import __version__
 from envsyncer.commands import add as add_cmd
+from envsyncer.commands import delete as delete_cmd
 from envsyncer.commands import doctor as doctor_cmd
 from envsyncer.commands import exclude as exclude_cmd
 from envsyncer.commands import profile as profile_cmd
@@ -31,6 +32,7 @@ app = typer.Typer(
 )
 
 _YES = typer.Option(False, "--yes", "-y", help="Assume yes / non-interactive.")
+_REMOVE = typer.Option(False, "--remove", "-r", help="Remove the pattern instead of adding it.")
 
 
 def _guard(func: Callable[..., None], *args: object) -> None:
@@ -92,14 +94,33 @@ def profile(ctx: typer.Context, name: str = typer.Argument(None), yes: bool = _Y
     _guard(profile_cmd.run, name, _yes(ctx, yes))
 
 
+@app.command(help="Delete file(s) from the vault. Local copies are left untouched.")
+def delete(
+    ctx: typer.Context,
+    paths: list[str] = typer.Argument(None, help="Vault paths to remove; omit to choose one."),
+    yes: bool = _YES,
+) -> None:
+    _guard(delete_cmd.run, paths, _yes(ctx, yes))
+
+
 @app.command(help="Register an extra secret filename/glob to scan for (e.g. local.properties).")
-def add(ctx: typer.Context, pattern: str = typer.Argument(None), yes: bool = _YES) -> None:
-    _guard(add_cmd.run, pattern, _yes(ctx, yes))
+def add(
+    ctx: typer.Context,
+    pattern: str = typer.Argument(None),
+    remove: bool = _REMOVE,
+    yes: bool = _YES,
+) -> None:
+    _guard(add_cmd.run, pattern, remove, _yes(ctx, yes))
 
 
 @app.command(help="Register an extra glob to exclude from scanning (e.g. '*.local').")
-def exclude(ctx: typer.Context, pattern: str = typer.Argument(None), yes: bool = _YES) -> None:
-    _guard(exclude_cmd.run, pattern, _yes(ctx, yes))
+def exclude(
+    ctx: typer.Context,
+    pattern: str = typer.Argument(None),
+    remove: bool = _REMOVE,
+    yes: bool = _YES,
+) -> None:
+    _guard(exclude_cmd.run, pattern, remove, _yes(ctx, yes))
 
 
 @app.command(help="Re-run first-time setup (auth + vault selection).")
