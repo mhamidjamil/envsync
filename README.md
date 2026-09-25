@@ -89,6 +89,10 @@ never touched.
 paste one you already have, or let it open GitHub's token page for you. It then
 finds or creates your private vault repo and remembers everything.
 
+## Prompt for AI coding tools
+
+Set up EnvSyncer from this repository on my machine and use it to back up my project secret files. Read this README, inspect the machine's existing GitHub authentication and EnvSyncer configuration, and locate the existing private vault before changing anything. For my GitHub account, the vault is mhamidjamil/self_envsyncer; never upload secrets to this public envsync repository or create a second vault. Scan Git projects under my home directory, including nested projects with their own Git remotes, and use each project's owner and repository name plus a profile named after this machine so backups from different machines stay separate. Preserve each secret file's relative path, run an initial upload, verify the remote files and hashes without displaying secret values, and schedule a check for local changes every three days. Keep missing files in the vault rather than deleting them. Report the vault, the projects and file counts, the schedule, and any projects that could not be backed up. Do not change project secrets or push application code.
+
 ## Configuration
 
 Lives at `~/.envsyncer/config.json` (created with `0600` permissions). It is plain
